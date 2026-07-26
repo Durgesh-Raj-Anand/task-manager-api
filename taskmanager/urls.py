@@ -11,9 +11,9 @@ from django.urls import include, path
 urlpatterns = [
     path('admin/', admin.site.urls),
 
-    # API endpoints (will be filled in later)
+    # API endpoints
     path('api/tasks/', include('tasks.urls')),
-    path('api/accounts/', include('accounts.urls')),
+    path('api/auth/', include('accounts.urls')),
 
     # DRF browsable API login (optional, handy during development)
     path('api-auth/', include('rest_framework.urls')),
