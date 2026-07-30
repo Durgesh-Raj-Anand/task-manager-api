@@ -5,14 +5,22 @@ Contains:
     CategoryViewSet – Full CRUD for categories (owner-scoped).
     TaskViewSet     – Full CRUD for tasks (owner-scoped).
 
+Custom endpoints:
+    POST /api/tasks/tasks/{id}/complete/ – Mark a task as done.
+    GET  /api/tasks/tasks/stats/         – Aggregate task counts.
+
 Both viewsets:
     - Require authentication (inherited from settings).
     - Scope querysets to the logged-in user (owner-based access).
     - Auto-set the owner on creation via perform_create().
 """
 
+from django.db.models import Count, Q
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, viewsets
+from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from .models import Category, Task
 from .serializers import (
@@ -151,3 +159,67 @@ class TaskViewSet(viewsets.ModelViewSet):
         cannot override this.
         """
         serializer.save(owner=self.request.user)
+
+    # -- Custom actions -----------------------------------------------
+
+    @action(detail=True, methods=['post'], url_path='complete')
+    def complete(self, request, pk=None):
+        """
+        POST /api/tasks/tasks/{id}/complete/
+
+        Marks a task as done.  Returns the updated task.
+        If the task is already done, it still returns 200
+        (idempotent behaviour).
+        """
+        task = self.get_object()
+        task.status = Task.Status.DONE
+        task.save(update_fields=['status', 'updated_at'])
+
+        serializer = TaskSerializer(task, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='stats')
+    def stats(self, request):
+        """
+        GET /api/tasks/tasks/stats/
+
+        Returns aggregate counts for the current user's tasks:
+            total, pending (todo), completed (done),
+            in_progress, cancelled, overdue.
+
+        Uses conditional aggregation so everything is computed
+        in a single database query.
+        """
+        now = timezone.now()
+
+        counts = (
+            Task.objects
+            .filter(owner=request.user)
+            .aggregate(
+                total=Count('id'),
+                pending=Count(
+                    'id', filter=Q(status=Task.Status.TODO),
+                ),
+                completed=Count(
+                    'id', filter=Q(status=Task.Status.DONE),
+                ),
+                in_progress=Count(
+                    'id', filter=Q(status=Task.Status.IN_PROGRESS),
+                ),
+                cancelled=Count(
+                    'id', filter=Q(status=Task.Status.CANCELLED),
+                ),
+                overdue=Count(
+                    'id',
+                    filter=Q(
+                        due_date__lt=now,
+                        status__in=[
+                            Task.Status.TODO,
+                            Task.Status.IN_PROGRESS,
+                        ],
+                    ),
+                ),
+            )
+        )
+
+        return Response(counts, status=status.HTTP_200_OK)

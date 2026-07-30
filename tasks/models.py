@@ -47,6 +47,7 @@ class Task(models.Model):
         TODO = 'todo', 'To Do'
         IN_PROGRESS = 'in_progress', 'In Progress'
         DONE = 'done', 'Done'
+        CANCELLED = 'cancelled', 'Cancelled'
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default='')
@@ -88,6 +89,8 @@ class Task(models.Model):
         Returns True if the task has a due date in the past
         and the task is not marked as done.
         """
-        if self.due_date and self.status != self.Status.DONE:
+        if self.due_date and self.status not in (
+            self.Status.DONE, self.Status.CANCELLED,
+        ):
             return timezone.now() > self.due_date
         return False
